@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Music Genre Classifier</title>
+
+  <!-- Google Font -->
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;500;700&display=swap" rel="stylesheet">
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Wavesurfer.js -->
+  <script src="https://unpkg.com/wavesurfer.js"></script>
+
+  <style>
+    body {
+      font-family: 'Poppins', sans-serif;
+      background: radial-gradient(circle at top left, #1a2a6c, #b21f1f, #fdbb2d);
+      color: white;
+      text-align: center;
+      min-height: 100vh;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      overflow-x: hidden;
+    }
+
+    h1 {
+      font-size: 2.8em;
+      margin-bottom: 0.3em;
+      text-shadow: 0 0 20px rgba(255,255,255,0.3);
+    }
+
+    p.subtitle {
+      color: #e0e0e0;
+      margin-bottom: 30px;
+      font-size: 1.1em;
+    }
+
+    .upload-box {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 25px;
+      padding: 40px;
+      width: 90%;
+      max-width: 500px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 0 30px rgba(0,0,0,0.4);
+      transition: all 0.4s ease;
+    }
+
+    .upload-box:hover {
+      transform: translateY(-6px);
+      box-shadow: 0 0 40px rgba(255,255,255,0.3);
+    }
+
+    .custom-file-upload {
+      border: 2px dashed rgba(255, 255, 255, 0.3);
+      display: inline-block;
+      padding: 20px;
+      border-radius: 15px;
+      cursor: pointer;
+      transition: background 0.3s ease, border 0.3s ease;
+    }
+
+    .custom-file-upload:hover {
+      background: rgba(255, 255, 255, 0.2);
+      border-color: #00c6ff;
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    input[type="submit"] {
+      margin-top: 20px;
+      padding: 12px 30px;
+      border: none;
+      background: linear-gradient(90deg, #00c6ff, #0072ff);
+      color: white;
+      border-radius: 30px;
+      cursor: pointer;
+      font-size: 16px;
+      transition: transform 0.3s, box-shadow 0.3s;
+    }
+
+    input[type="submit"]:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 20px rgba(0,198,255,0.6);
+    }
+
+    /* Spinner */
+    .spinner {
+      border: 4px solid rgba(255, 255, 255, 0.3);
+      border-top: 4px solid #00c6ff;
+      border-radius: 50%;
+      width: 45px;
+      height: 45px;
+      margin: 25px auto;
+      animation: spin 1s linear infinite;
+      display: none;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Waveform */
+    #waveform {
+      margin-top: 30px;
+      width: 100%;
+      border-radius: 10px;
+    }
+
+    /* Prediction */
+    .prediction {
+      margin-top: 25px;
+      font-size: 1.3em;
+      color: #ffeb3b;
+      text-shadow: 0 0 10px rgba(255,235,59,0.6);
+      animation: fadeIn 0.8s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Chart Container */
+    .chart-container {
+      margin-top: 30px;
+      width: 100%;
+      max-width: 450px;
+    }
+
+  </style>
+</head>
+<body>
+  <h1>🎵 AI Music Genre Classifier</h1>
+  <p class="subtitle">Upload your track and let AI tell you the vibe 🎶</p>
+
+  <div class="upload-box">
+    <form id="uploadForm" action="/" method="post" enctype="multipart/form-data" onsubmit="showSpinner()">
+      <label for="file" class="custom-file-upload">
+        🎧 Click to Choose a Music File (.mp3 / .wav)
+      </label>
+      <input id="file" type="file" name="file" accept=".wav,.mp3" required onchange="previewAudio(event)">
+      <br>
+      <input type="submit" value="Upload & Predict">
+      <div class="spinner" id="loadingSpinner"></div>
+    </form>
+
+    <!-- Waveform Preview -->
+    <div id="waveform"></div>
+
+    <!-- Flask Prediction -->
+    {% if prediction %}
+      <div class="prediction">
+        {{ prediction }}
+      </div>
+
+      <!-- Confidence Chart -->
+      {% if confidence %}
+      <div class="chart-container">
+        <canvas id="confidenceChart"></canvas>
+      </div>
+      <script>
+        const ctx = document.getElementById('confidenceChart').getContext('2d');
+        const data = {
+          labels: {{ labels | tojson }},
+          datasets: [{
+            label: 'Confidence Level',
+            data: {{ confidence|tojson }},
+            backgroundColor: ['#00c6ff', '#0072ff', '#ff4081'],
+            borderRadius: 8
+          }]
+        };
+        new Chart(ctx, {
+          type: 'bar',
+          data: data,
+          options: {
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, max: 1 } }
+          }
+        });
+      </script>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  <script>
+    let wavesurfer;
+
+    // Show spinner while uploading
+    function showSpinner() {
+      document.getElementById('loadingSpinner').style.display = 'block';
+    }
+
+    // Preview audio waveform
+    function previewAudio(event) {
+      const file = event.target.files[0];
+      if (file) {
+        if (wavesurfer) wavesurfer.destroy();
+        const url = URL.createObjectURL(file);
+        wavesurfer = WaveSurfer.create({
+          container: '#waveform',
+          waveColor: '#00c6ff',
+          progressColor: '#ff4081',
+          barWidth: 2,
+          height: 100
+        });
+        wavesurfer.load(url);
+      }
+    }
+  </script>
+</body>
+</html>
